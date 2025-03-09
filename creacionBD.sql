@@ -104,4 +104,3 @@ CREATE TABLE PERTENECE (
     FOREIGN KEY (codigo_aula) REFERENCES AULA(codigo_aula),
     FOREIGN KEY (nivel_actual, codigo_aula) REFERENCES NIVELES(numero_nivel, codigo_aula)
 );
-
