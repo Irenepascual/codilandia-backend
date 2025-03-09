@@ -50,6 +50,7 @@ app.get('/', (req, res) => {
   res.send('¡Bienvenido a Codilandia!');
 });
 
+// En escucha...
 app.listen(port, () => {
   console.log(`Servidor en http://localhost:${port}`);
 });
