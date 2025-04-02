@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 
 // Ruta GET para obtener usuarios
 router.get('/', async (req, res) => {
@@ -15,8 +17,38 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Ruta para obtener todos los nombres de usuarios vinculados a un correo
+router.get('/get-usernames-by-email', async (req, res) => {
+  const client = await req.pool.connect();  
+  try {
+    const { email } = req.query; 
 
-// Ruta GET para obtener todos los adultos
+    if (!email) {
+      return res.status(400).json({ error: "Se requiere el parámetro 'email'" });
+    }
+
+    const result = await client.query(
+      'SELECT nombre_usuario FROM usuario WHERE correo_usuario = $1',
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No se encontraron usuarios" });
+    }
+
+    const usernames = result.rows.map(row => row.nombre_usuario);
+    res.json({ usernames });  
+
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: "Error del servidor" });
+  } finally {
+    client.release();
+  }
+});
+
+
+// Ruta para obtener todos los adultos
 router.get('/adultos', async (req, res) => {
     const client = await req.pool.connect();
     try {
@@ -31,7 +63,7 @@ router.get('/adultos', async (req, res) => {
   });
   
 
-  // Ruta GET para obtener todos los niños
+  // Ruta para obtener todos los niños
   router.get('/ninos', async (req, res) => {
     const client = await req.pool.connect();
     try {
@@ -45,14 +77,76 @@ router.get('/adultos', async (req, res) => {
     }
   });
   
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: "codilandiaofc@gmail.com", 
+    pass: process.env.CONTRASENA_GMAIL
+  },
+});
+
+// Función para enviar el correo de recuperación
+async function sendResetEmail(email, username) {
+  const mailOptions = {
+    from: '"Codilandia" <codilandiaofc@gmail.com>',
+    to: email,
+    subject: 'Recuperación de Contraseña',
+    text: `Hola ${username},\n\nHaz clic en el siguiente enlace para cambiar tu contraseña: \nhttp://localhost:4200/recuperacion?email=${email}&username=${username}`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('Correo de recuperación enviado a:', email);
+  } catch (error) {
+    console.error('Error enviando el correo:', error);
+    throw new Error('Error al enviar el correo de recuperación');
+  }
+}
+
+router.get('/send-reset-email', async (req, res) => {
+  const { email, username } = req.query;  
+
+  if (!email || !username) {
+    return res.status(400).json({ error: 'Faltan parámetros: email o username' });
+  }
+
+  const client = await req.pool.connect();
+  try {
+    const result = await client.query(
+      'SELECT * FROM usuario WHERE correo_usuario = $1 AND nombre_usuario = $2',
+      [email, username]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    await sendResetEmail(email, username);
+    res.json({ message: 'Correo de recuperación enviado' });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Error al enviar el correo' });
+  } finally {
+    client.release();
+  }
+});
+
+
 
 // Ruta POST para crear adulto
 router.post('/adulto', async (req, res) => {
   const { correo_usuario, nombre_usuario, contrasena } = req.body;
   const client = await req.pool.connect();
 
+  if (!correo_usuario || !nombre_usuario || !contrasena) {
+    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+  }
+
   try {
     await client.query('BEGIN');
+
+    // Hashear la contraseña antes de almacenarla
+    const hashedPassword = await bcrypt.hash(contrasena, 10);
 
     // Verificar si ya existe el usuario en USUARIO con la combinación correo y nombre
     const userCheck = await client.query(
@@ -75,7 +169,7 @@ router.post('/adulto', async (req, res) => {
     // Insertar en USUARIO
     await client.query(
       'INSERT INTO usuario (correo_usuario, nombre_usuario, contrasena, tipo) VALUES ($1, $2, $3, $4)',
-      [correo_usuario, nombre_usuario, contrasena, 'adulto']
+      [correo_usuario, nombre_usuario, hashedPassword, 'adulto']
     );
 
     // Insertar en ADULTO
@@ -96,9 +190,74 @@ router.post('/adulto', async (req, res) => {
 });
 
 
+router.post('/send-reset-email', async (req, res) => {
+  const { email, username } = req.body;
+  
+  try {
+    const client = await req.pool.connect();
+    // Verificar si el usuario existe
+    const result = await client.query(
+      'SELECT * FROM usuario WHERE correo_usuario = $1 AND nombre_usuario = $2',
+      [email, username]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    // Enviar correo
+    await sendResetEmail(email, username);
+    res.json({ message: 'Correo de recuperación enviado' });
+    
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Error al enviar el correo' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta POST para cambiar la contraseña
+router.post('/update-password', async (req, res) => {
+  const { email, username, newPassword } = req.body; 
+
+  if (!email || !username || !newPassword) {
+    return res.status(400).json({ error: 'Faltan parámetros: email, username o nueva contraseña' });
+  }
+
+  const client = await req.pool.connect(); 
+  try {
+    // Buscar el usuario por correo electrónico y nombre de usuario
+    const result = await client.query(
+      'SELECT * FROM usuario WHERE correo_usuario = $1 AND nombre_usuario = $2',
+      [email, username]
+    );
+
+    // Verificar si el usuario existe
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Hashear la nueva contraseña
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Actualizar la contraseña en la base de datos
+    await client.query(
+      'UPDATE usuario SET contrasena = $1 WHERE correo_usuario = $2 AND nombre_usuario = $3',
+      [hashedPassword, email, username]
+    );
+
+    res.json({ message: 'Contraseña actualizada con éxito' });
+  } catch (err) {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Error al actualizar la contraseña' });
+  } finally {
+    client.release();  
+  }
+});
 
 
-// Función para generar un código aleatorio sin colisión
+// Función para generar un código aleatorio sin que exista otro igual
 async function generateRandomAulaCode(client) {
     while (true) {
       // Genera un número aleatorio entre 0 y 99999
@@ -132,7 +291,12 @@ router.post('/nino', async (req, res) => {
   const client = await req.pool.connect();
   try {
     const { correo_usuario, nombre_usuario, contrasena } = req.body;
-    
+    console.log('Datos recibidos:', req.body);
+
+    if (!correo_usuario || !nombre_usuario || !contrasena) {
+      return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    }
+
     // Verificar si el usuario ya existe en USUARIO (usando la clave compuesta)
     const userCheck = await client.query(
       'SELECT * FROM usuario WHERE correo_usuario = $1 AND nombre_usuario = $2',
@@ -143,12 +307,14 @@ router.post('/nino', async (req, res) => {
     }
   
     await client.query('BEGIN');
+
+    const hashedPassword = await bcrypt.hash(contrasena, 10); 
   
     // 1. Insertar en USUARIO (tipo = 'nino')
     await client.query(
       `INSERT INTO usuario (correo_usuario, nombre_usuario, contrasena, tipo)
        VALUES ($1, $2, $3, 'nino')`,
-      [correo_usuario, nombre_usuario, contrasena]
+      [correo_usuario, nombre_usuario, hashedPassword]
     );
   
     // 2. Insertar en NINO (clave compuesta)
@@ -208,7 +374,7 @@ router.post('/nino', async (req, res) => {
 });
 
 
-// DELETE para eliminar un adulto (requiere correo y nombre)
+// DELETE para eliminar un adulto
 router.delete('/adulto/:correo/:nombre', async (req, res) => {
   const client = await req.pool.connect();
   const correo = req.params.correo;
@@ -305,6 +471,7 @@ router.delete('/nino/:correo/:nombre', async (req, res) => {
     client.release();
   }
 });
+
 
 
 module.exports = router;

@@ -1,15 +1,28 @@
 const express = require('express');
 const { Pool } = require('pg');
 const fs = require('fs');
+const cors = require('cors'); 
+const bodyParser = require('body-parser');
+const authRoutes = require('./routes/auth'); 
+const protectedRoutes = require('./routes/protectedRoutes');
+
 const app = express();
 const port = 3000;
 
 require('dotenv').config();
 
+console.log(process.env.DATABASE_URL);
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
+
+app.use(cors({
+  origin: 'http://localhost:4200',  // Permitir solicitudes solo desde el frontend
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Métodos permitidos
+  allowedHeaders: ['Content-Type']  // Cabeceras permitidas
+}));
 
 // Middleware para compartir el pool (solo una vez)
 app.use((req, res, next) => {
@@ -18,6 +31,8 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
 
 // Función para inicializar la base de datos
 async function initializeDatabase() {
@@ -43,8 +58,17 @@ async function initializeDatabase() {
 initializeDatabase();
 
 // Importar rutas
+
+app.use('/api/auth', authRoutes);
+app.use('/api/protected', protectedRoutes);
+
+
 const userRoutes = require('./routes/userRoutes');
+const aulaRoutes = require('./routes/aula'); // Añadir esta línea
+
 app.use('/api/users', userRoutes);
+app.use('/api/aulas', aulaRoutes); 
+
 
 app.get('/', (req, res) => {
   res.send('¡Bienvenido a Codilandia!');
