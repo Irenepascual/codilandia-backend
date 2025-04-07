@@ -23,6 +23,74 @@ router.post('/unirse', async (req, res) => {
   }
 });
 
+router.post('/crear-aula', async (req, res) => {
+  const { codigo_aula, nombre_aula } = req.body;
+
+  if (!codigo_aula || !nombre_aula) {
+    return res.status(400).send({ error: 'Faltan datos obligatorios' });
+  }
+
+  const client = await req.pool.connect();
+  try {
+    const aulaExiste = await client.query(
+      'SELECT * FROM AULA WHERE codigo_aula = $1',
+      [codigo_aula]
+    );
+
+    if (aulaExiste.rows.length > 0) {
+      return res.status(409).send({ error: 'El código de aula ya existe' });
+    }
+
+    await client.query(
+      'INSERT INTO AULA (codigo_aula, nombre_aula) VALUES ($1, $2)',
+      [codigo_aula, nombre_aula]
+    );
+
+    res.status(201).send({ message: 'Aula creada con éxito' });
+  } catch (err) {
+    console.error('Error al crear el aula:', err);
+    res.status(500).send({ error: 'Error al procesar la solicitud' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/crear-aula-virtual', async (req, res) => {
+  const { codigo_aula, correo_adulto, nombre_adulto } = req.body;
+
+  if (!codigo_aula || !correo_adulto || !nombre_adulto) {
+    return res.status(400).send({ error: 'Faltan datos obligatorios' });
+  }
+
+  const client = await req.pool.connect();
+  try {
+    // Verificar si el aula ya existe en la tabla AULA
+    const aulaExiste = await client.query(
+      'SELECT * FROM AULA WHERE codigo_aula = $1',
+      [codigo_aula]
+    );
+
+    if (aulaExiste.rows.length === 0) {
+      return res.status(404).send({ error: 'El aula no existe' });
+    }
+
+    // Insertar en la tabla AULA_VIRTUAL
+    await client.query(
+      'INSERT INTO AULA_VIRTUAL (codigo_aula, correo_adulto, nombre_adulto) VALUES ($1, $2, $3)',
+      [codigo_aula, correo_adulto, nombre_adulto]
+    );
+
+    res.status(201).send({ message: 'Aula virtual creada con éxito' });
+  } catch (err) {
+    console.error('Error al crear el aula virtual:', err);
+    res.status(500).send({ error: 'Error al procesar la solicitud' });
+  } finally {
+    client.release();
+  }
+});
+
+
+
 
 // Ruta GET para obtener los cursos del niño
 router.get('/:correo/:nombre', async (req, res) => {
@@ -46,5 +114,125 @@ router.get('/:correo/:nombre', async (req, res) => {
     client.release();
   }
 });
+
+// Ruta GET para obtener los cursos del adulto
+router.get('/adulto/:correo/:nombre', async (req, res) => {
+  const { correo, nombre } = req.params;
+  const client = await req.pool.connect();
+  try {
+    // Obtener los cursos asociados al adulto
+    const result = await client.query(`
+      SELECT a.codigo_aula, a.nombre_aula 
+      FROM aula a
+      JOIN aula_virtual av ON a.codigo_aula = av.codigo_aula
+      WHERE av.correo_adulto = $1 AND av.nombre_adulto = $2
+    `, [correo, nombre]);
+       
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener cursos:', err);
+    res.status(500).json({ error: 'Error al obtener los cursos' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta GET para obtener solictudes de un aula por ID
+router.get('/aula/:codigo/solicitudes', async (req, res) => {
+
+  const client = await req.pool.connect();
+  const { codigo } = req.params;  
+  try {
+    const result = await client.query(`
+      SELECT s.codigo_aula, s.nombre_nino, s.correo_nino
+      FROM solicita s
+      WHERE s.codigo_aula = $1
+	`, [codigo]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Solictudes no encontradas' });
+    }
+
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener solicitudes por código:', err);
+    res.status(500).json({ error: 'Error al obtener el aula' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta DELETE para eliminar solicitudes de un aula
+router.delete('/aula/:codigo/solicitudes/:correo', async (req, res) => {
+  const client = await req.pool.connect();
+  const { codigo, correo } = req.params;
+
+  try {
+    const result = await client.query(`
+      DELETE FROM solicita
+      WHERE codigo_aula = $1 AND correo_nino = $2
+      RETURNING *
+    `, [codigo, correo]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'No se encontró la solicitud a eliminar' });
+    }
+
+    res.status(200).json({ mensaje: 'Solicitud eliminada correctamente', solicitud: result.rows[0] });
+  } catch (err) {
+    console.error('Error al eliminar la solicitud:', err);
+    res.status(500).json({ error: 'Error al eliminar la solicitud' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta POST para añadir un niño a un aula
+router.post('/pertenece', async (req, res) => {
+  const client = await req.pool.connect();
+  const { correo_nino, nombre_nino, codigo_aula, nivel_actual } = req.body;
+
+  try {
+    const result = await client.query(`
+      INSERT INTO pertenece (correo_nino, nombre_nino, codigo_aula, nivel_actual)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `, [correo_nino, nombre_nino, codigo_aula, nivel_actual]);
+
+    res.status(201).json({ mensaje: 'Añadido correctamente', pertenece: result.rows[0] });
+  } catch (err) {
+    console.error('Error al añadir a pertenece:', err);
+    res.status(500).json({ error: 'No se pudo añadir a pertenece' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta GET para obtener un aula por su ID
+router.get('/aula', async (req, res) => {
+
+  const client = await req.pool.connect();
+  const codigo = req.query.codigo;  
+  try {
+    const result = await client.query(`
+      SELECT a.codigo_aula, a.nombre_aula 
+      FROM aula a
+      WHERE a.codigo_aula = $1
+	`, [codigo]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Aula no encontrada' });
+    }
+
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener aula por código:', err);
+    res.status(500).json({ error: 'Error al obtener el aula' });
+  } finally {
+    client.release();
+  }
+});
+
+
 
 module.exports = router;
