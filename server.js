@@ -65,10 +65,11 @@ app.use('/api/protected', protectedRoutes);
 
 const userRoutes = require('./routes/userRoutes');
 const aulaRoutes = require('./routes/aula'); // Añadir esta línea
+const nivelesRoutes = require('./routes/niveles');
 
 app.use('/api/users', userRoutes);
 app.use('/api/aulas', aulaRoutes); 
-
+app.use('/api/niveles', nivelesRoutes);
 
 app.get('/', (req, res) => {
   res.send('¡Bienvenido a Codilandia!');
