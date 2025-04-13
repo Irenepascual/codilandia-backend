@@ -240,7 +240,7 @@ router.get('/alumnos', async (req, res) => {
   const codigo = req.query.codigo;  
   try {
     const result = await client.query(`
-      SELECT p.nombre_nino, p.correo_nino
+      SELECT p.nombre_nino, p.correo_nino, p.nivel_actual
       FROM pertenece p
       WHERE p.codigo_aula = $1
 	`, [codigo]);
@@ -278,6 +278,31 @@ router.delete('/aula/:codigo/alumnos/:correo', async (req, res) => {
   } catch (err) {
     console.error('Error al eliminar el alumno:', err);
     res.status(500).json({ error: 'Error al eliminar el alumno' });
+  } finally {
+    client.release();
+  }
+});
+
+// Ruta GET para notas por alumnos de un aula
+router.get('/alumnos/notas/:codigo/:correo', async (req, res) => {
+
+  const client = await req.pool.connect();
+  const { codigo, correo } = req.params;
+  try {
+    const result = await client.query(`
+      SELECT r.nombre_nino, r.correo_nino, r.nota, r.numero_nivel
+      FROM resultado r
+      WHERE r.codigo_aula = $1 AND correo_nino = $2
+	`, [codigo, correo]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Resultados no encontrados' });
+    }
+
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener resultados por código:', err);
+    res.status(500).json({ error: 'Error al obtener los resultados' });
   } finally {
     client.release();
   }
