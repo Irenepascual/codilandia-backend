@@ -1,6 +1,32 @@
 const express = require('express');
 const router = express.Router();
 
+// Agrega en aula.js este nuevo endpoint para obtener el aula individual de un niño
+router.get('/individual/:correo/:nombre', async (req, res) => {
+  const { correo, nombre } = req.params;
+  const client = await req.pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT codigo_aula 
+       FROM aula_individual 
+       WHERE correo_nino = $1 AND nombre_nino = $2`,
+      [correo, nombre]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No se encontró aula individual para el niño' });
+    }
+
+    // Suponemos que para un niño existe una única aula individual
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al obtener aula individual:', err);
+    res.status(500).json({ error: 'Error al obtener aula individual' });
+  } finally {
+    client.release();
+  }
+});
+
 
 // Ruta POST para unirse a un grupo
 router.post('/unirse', async (req, res) => {
@@ -22,6 +48,7 @@ router.post('/unirse', async (req, res) => {
     client.release();  
   }
 });
+
 
 router.post('/crear-aula', async (req, res) => {
   const { codigo_aula, nombre_aula } = req.body;
@@ -89,17 +116,13 @@ router.post('/crear-aula-virtual', async (req, res) => {
   }
 });
 
-
-
-
-// Ruta GET para obtener los cursos del niño
 router.get('/:correo/:nombre', async (req, res) => {
   const { correo, nombre } = req.params;
   const client = await req.pool.connect();
   try {
-    // Obtener los cursos asociados al niño
+    // Obtener los cursos asociados al niño, devolviendo también el código del aula
     const result = await client.query(`
-      SELECT a.nombre_aula 
+      SELECT a.codigo_aula, a.nombre_aula 
       FROM aula a
       JOIN pertenece p ON a.codigo_aula = p.codigo_aula
       JOIN aula_virtual av ON a.codigo_aula = av.codigo_aula
