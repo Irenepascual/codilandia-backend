@@ -18,6 +18,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+pool.on('error', (err, client) => {
+  console.error('Error inesperado en el idle client', err);
+  process.exit(-1);
+});
+
 app.use(cors({
   origin: 'http://localhost:4200',  // Permitir solicitudes solo desde el frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE'], // Métodos permitidos

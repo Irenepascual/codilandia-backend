@@ -1,6 +1,32 @@
 const express = require('express');
 const router = express.Router();
 
+// Obtener el nivel actual de un niño en un aula
+router.get('/nivel-actual/:correo/:nombre/:codigo_aula', async (req, res) => {
+  const { correo, nombre, codigo_aula } = req.params;
+  const client = await req.pool.connect();
+  
+  try {
+    const result = await client.query(`
+      SELECT nivel_actual 
+      FROM pertenece 
+      WHERE correo_nino = $1 AND nombre_nino = $2 AND codigo_aula = $3
+    `, [correo, nombre, codigo_aula]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Nivel no encontrado' });
+    }
+
+    res.status(200).json({ nivel_actual: result.rows[0].nivel_actual });
+  } catch (err) {
+    console.error('Error al obtener el nivel actual:', err);
+    res.status(500).json({ error: 'Error en el servidor' });
+  } finally {
+    client.release();
+  }
+});
+
+
 // Agrega en aula.js este nuevo endpoint para obtener el aula individual de un niño
 router.get('/individual/:correo/:nombre', async (req, res) => {
   const { correo, nombre } = req.params;
