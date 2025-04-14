@@ -357,6 +357,27 @@ router.get('/alumnos/notas/:codigo/:correo', async (req, res) => {
   }
 });
 
+// Ruta POST para añadir niveles a un aula
+router.post('/niveles', async (req, res) => {
+  const client = await req.pool.connect();
+  const { numero_nivel, codigo_aula, nombre_nivel } = req.body;
+
+  try {
+    const result = await client.query(`
+      INSERT INTO niveles (numero_nivel, codigo_aula, nombre_nivel)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `, [numero_nivel, codigo_aula, nombre_nivel]);
+
+    res.status(201).json({ mensaje: 'Añadido correctamente', pertenece: result.rows[0] });
+  } catch (err) {
+    console.error('Error al añadir a niveles', err);
+    res.status(500).json({ error: 'No se pudo añadir a niveles' });
+  } finally {
+    client.release();
+  }
+});
+
 
 
 module.exports = router;
