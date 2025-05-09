@@ -19,7 +19,6 @@ const pool = new Pool({
 
 pool.on('error', (err, client) => {
   console.error('Error inesperado en el idle client', err);
-  process.exit(-1);
 });
 
 app.use(cors({

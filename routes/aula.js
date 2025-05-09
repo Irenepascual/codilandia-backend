@@ -212,29 +212,28 @@ router.get('/aula/:codigo/solicitudes', async (req, res) => {
 });
 
 // Ruta DELETE para eliminar solicitudes de un aula
-router.delete('/aula/:codigo/solicitudes/:correo', async (req, res) => {
+// Ruta DELETE mejorada
+router.delete('/aula/:codigo/solicitudes/:correo/:nombre', async (req, res) => {
+  const { codigo, correo, nombre } = req.params;
   const client = await req.pool.connect();
-  const { codigo, correo } = req.params;
-
   try {
     const result = await client.query(`
       DELETE FROM solicita
-      WHERE codigo_aula = $1 AND correo_nino = $2
-      RETURNING *
-    `, [codigo, correo]);
+       WHERE codigo_aula  = $1
+         AND correo_nino  = $2
+         AND nombre_nino  = $3
+      RETURNING *;
+    `, [codigo, correo, nombre]);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'No se encontró la solicitud a eliminar' });
     }
-
     res.status(200).json({ mensaje: 'Solicitud eliminada correctamente', solicitud: result.rows[0] });
-  } catch (err) {
-    console.error('Error al eliminar la solicitud:', err);
-    res.status(500).json({ error: 'Error al eliminar la solicitud' });
   } finally {
     client.release();
   }
 });
+
 
 // Ruta POST para añadir un niño a un aula
 router.post('/pertenece', async (req, res) => {
@@ -333,25 +332,84 @@ router.delete('/aula/:codigo/alumnos/:correo', async (req, res) => {
 });
 
 // Ruta GET para notas por alumnos de un aula
-router.get('/alumnos/notas/:codigo/:correo', async (req, res) => {
-
+// Ruta GET para notas de un alumno en un aula, filtrando también por nombre
+router.get('/alumnos/notas/:codigo/:correo/:nombre', async (req, res) => {
+  const { codigo, correo, nombre } = req.params;
   const client = await req.pool.connect();
-  const { codigo, correo } = req.params;
   try {
     const result = await client.query(`
       SELECT r.nombre_nino, r.correo_nino, r.nota, r.numero_nivel
       FROM resultado r
-      WHERE r.codigo_aula = $1 AND correo_nino = $2
-	`, [codigo, correo]);
-
-    if (result.rows.length === 0) {
+      WHERE r.codigo_aula = $1
+        AND r.correo_nino = $2
+        AND r.nombre_nino = $3
+      ORDER BY r.numero_nivel
+    `, [codigo, correo, nombre]);
+    if (!result.rows.length) {
       return res.status(404).json({ error: 'Resultados no encontrados' });
     }
-
-    res.status(200).json(result.rows);
+    res.json(result.rows);
   } catch (err) {
-    console.error('Error al obtener resultados por código:', err);
+    console.error(err);
     res.status(500).json({ error: 'Error al obtener los resultados' });
+  } finally {
+    client.release();
+  }
+});
+
+// Obtiene la nota media de un alumno en un aula concreta
+router.get(
+  '/alumnos/nota-media/:codigo/:correo/:nombre',
+  async (req, res) => {
+    const { codigo, correo, nombre } = req.params;
+    const client = await req.pool.connect();
+    try {
+      const result = await client.query(
+        `
+        SELECT 
+          AVG(r.nota)::numeric(5,2) AS nota_media
+        FROM resultado r
+        WHERE r.codigo_aula = $1
+          AND r.correo_nino = $2
+          AND r.nombre_nino = $3
+        `,
+        [codigo, correo, nombre]
+      );
+
+      // Si no hay filas, devolvemos 404
+      if (result.rows.length === 0 || result.rows[0].nota_media === null) {
+        return res.status(404).json({ error: 'No hay notas para este alumno' });
+      }
+
+      // Devolvemos la nota media como número con dos decimales
+      res.json({ nota_media: result.rows[0].nota_media });
+    } catch (err) {
+      console.error('Error al calcular nota media:', err);
+      res.status(500).json({ error: 'Error en el servidor' });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// GET /api/aulas/aula/nombre/:codigo
+router.get('/aula/nombre/:codigo', async (req, res) => {
+  const { codigo } = req.params;
+  const client = await req.pool.connect();
+  try {
+    const { rows } = await client.query(`
+      SELECT nombre_aula
+        FROM aula
+       WHERE codigo_aula = $1
+    `, [codigo]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Aula no encontrada' });
+    }
+    res.json({ nombre_aula: rows[0].nombre_aula });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener nombre de aula' });
   } finally {
     client.release();
   }

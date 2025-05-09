@@ -341,14 +341,16 @@ router.post('/nino', async (req, res) => {
       [codigoAula, correo_usuario, nombre_usuario]
     );
   
-    // 6. Insertar 15 niveles (del 1 al 15) en la tabla NIVELES, con nombre_nivel = NULL
-    for (let i = 1; i <= 15; i++) {
+    // 6. Insertar 15 niveles (del 1 al 11) en la tabla NIVELES, con nombre_nivel = NULL
+    for (let i = 1; i <= 11; i++) {
+      const nombreNivel = `nivel - ${i}`;
       await client.query(
         `INSERT INTO niveles (numero_nivel, codigo_aula, nombre_nivel)
-         VALUES ($1, $2, NULL)`,
-        [i, codigoAula]
+         VALUES ($1, $2, $3)`,
+        [i, codigoAula, nombreNivel]
       );
     }
+    
   
     // 7. Insertar en PERTENECE, referenciando el nivel_actual = 1 (clave foránea compuesta)
     await client.query(
